@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Flow — Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;1,400&family=DM+Sans:wght@200;300;400&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --safe-t:env(safe-area-inset-top,0px);
+  --safe-b:env(safe-area-inset-bottom,0px);
+  --glass:rgba(255,255,255,0.06);
+  --glass2:rgba(255,255,255,0.1);
+  --gb:rgba(255,255,255,0.12);
+  --glow:rgba(255,255,255,0.07);
+  --text:rgba(255,255,255,0.9);
+  --muted:rgba(255,255,255,0.38);
+  --accent:#c8a96e;
+  --r:22px;
+}
+html,body{width:100%;height:100%;overflow:hidden}
+body{
+  background:#080810;
+  color:white;
+  font-family:'DM Sans',sans-serif;
+  font-weight:300;
+  -webkit-tap-highlight-color:transparent;
+  user-select:none;
+}
+
+/* ═══ ANIMATED GRADIENT BG ═══ */
+.bg{
+position:fixed;inset:0;z-index:0;
+background: radial-gradient(ellipse 80% 60% at 20% 10%, rgba(80,40,160,0.35) 0%, transparent 60%),
+radial-gradient(ellipse 60% 50% at 80% 90%, rgba(20,80,140,0.3) 0%, transparent 55%),
+radial-gradient(ellipse 50% 40% at 50% 50%, rgba(10,50,80,0.2) 0%, transparent 70%),
+#080810;
+}
+.bg::after{
+content:’’;position:absolute;inset:0;
+background-image:url(“data:image/svg+xml,%3Csvg viewBox=‘0 0 256 256’ xmlns=‘http://www.w3.org/2000/svg’%3E%3Cfilter id=‘n’%3E%3CfeTurbulence type=‘fractalNoise’ baseFrequency=’.9’ numOctaves=‘4’ stitchTiles=‘stitch’/%3E%3C/filter%3E%3Crect width=‘100%25’ height=‘100%25’ filter=‘url(%23n)’/%3E%3C/svg%3E”);
+opacity:0.028;pointer-events:none;
+}
+
+/* ═══ MAIN SCREEN ═══ */
+.screen{
+position:fixed;inset:0;z-index:10;
+display:flex;flex-direction:column;align-items:center;
+justify-content:center;
+gap:0;
+padding-bottom:calc(160px + var(–safe-b));
+padding-top:calc(70px + var(–safe-t));
+}
+
+/* label */
+.label{
+font-size:10px;letter-spacing:.28em;text-transform:uppercase;
+color:var(–muted);margin-bottom:20px;
+display:flex;align-items:center;gap:10px;
+}
+.label::before,.label::after{content:’’;flex:1;height:1px;background:rgba(255,255,255,.08)}
+
+/* big number */
+.days-wrap{text-align:center}
+.days-n{
+font-family:‘Playfair Display’,serif;
+font-size:clamp(96px,24vw,160px);
+line-height:.88;letter-spacing:-.03em;
+background:linear-gradient(170deg,#fff 40%,rgba(255,255,255,.45));
+-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+}
+.days-unit{
+font-size:10px;letter-spacing:.32em;text-transform:uppercase;
+color:var(–muted);margin-top:8px;
+}
+
+/* stage pill */
+.stage-pill{
+margin-top:18px;
+display:inline-flex;align-items:center;gap:8px;
+padding:7px 18px;border-radius:99px;
+background:var(–glass);
+border:1px solid var(–gb);
+font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+color:rgba(255,255,255,.55);
+font-style:italic;font-family:‘Playfair Display’,serif;
+backdrop-filter:blur(12px);
+}
+.stage-dot{
+width:6px;height:6px;border-radius:50%;
+background:var(–accent);
+animation:sdot 2.5s ease-in-out infinite;
+}
+@keyframes sdot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.25;transform:scale(.55)}}
+
+/* milestones */
+.milestones{
+display:flex;gap:16px;margin-top:24px;align-items:flex-start;
+flex-wrap:wrap;justify-content:center;max-width:340px;
+}
+.ms{display:flex;flex-direction:column;align-items:center;gap:4px;cursor:default}
+.ms-ring{
+width:8px;height:8px;border-radius:50%;
+border:1px solid rgba(255,255,255,.15);
+transition:all .5s;
+}
+.ms.done .ms-ring{background:white;border-color:white;box-shadow:0 0 8px rgba(255,255,255,.7)}
+.ms-lbl{font-size:8px;color:rgba(255,255,255,.2);letter-spacing:.08em;transition:color .5s}
+.ms.done .ms-lbl{color:rgba(255,255,255,.55)}
+
+/* progress arc */
+.arc-wrap{position:relative;width:72px;height:72px;margin:16px auto 0}
+.arc-svg{position:absolute;inset:0;transform:rotate(-90deg)}
+.arc-bg{fill:none;stroke:rgba(255,255,255,.06);stroke-width:3}
+.arc-fill{fill:none;stroke:white;stroke-width:3;stroke-linecap:round;
+stroke-dasharray:188;stroke-dashoffset:188;transition:stroke-dashoffset 1.2s cubic-bezier(.4,0,.2,1)}
+.arc-pct{
+position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+font-size:12px;font-family:‘Playfair Display’,serif;color:rgba(255,255,255,.7);
+}
+
+/* ═══ TOP BAR ═══ */
+.topbar{
+position:fixed;top:calc(16px + var(–safe-t));left:0;right:0;
+z-index:50;display:flex;justify-content:space-between;
+padding:0 16px;pointer-events:auto;gap:8px;
+}
+.topbtn{
+flex:1;
+background:var(–glass);
+backdrop-filter:blur(20px) saturate(180%);
+-webkit-backdrop-filter:blur(20px) saturate(180%);
+border:1px solid var(–gb);
+border-radius:14px;
+padding:9px 12px;
+font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+color:rgba(255,255,255,.55);cursor:pointer;
+transition:background .2s,transform .1s;
+text-align:center;position:relative;overflow:hidden;
+}
+.topbtn::before{
+content:’’;position:absolute;top:0;left:0;right:0;height:1px;
+background:linear-gradient(90deg,transparent,rgba(255,255,255,.3),transparent);
+}
+.topbtn:hover{background:var(–glass2)}
+.topbtn:active{transform:scale(.95)}
+
+/* ═══ BOTTOM CONTROLS ═══ */
+.controls{
+position:fixed;bottom:0;left:0;right:0;z-index:20;
+padding:12px 16px calc(var(–safe-b) + 16px);
+display:flex;flex-direction:column;gap:7px;
+background:linear-gradient(to top,rgba(8,8,16,.9) 60%,transparent);
+}
+.row{display:flex;gap:7px}
+input[type=“date”]{
+flex:1;padding:11px 14px;border-radius:14px;
+border:1px solid var(–gb);background:var(–glass);
+color:white;font-family:‘DM Sans’,sans-serif;font-size:13px;font-weight:300;
+outline:none;color-scheme:dark;backdrop-filter:blur(12px);
+transition:border-color .2s;
+}
+input[type=“date”]:focus{border-color:rgba(255,255,255,.3)}
+button{
+padding:11px 18px;border-radius:14px;
+border:1px solid var(–gb);background:var(–glass);
+color:rgba(255,255,255,.75);font-family:‘DM Sans’,sans-serif;
+font-size:10px;font-weight:300;letter-spacing:.1em;text-transform:uppercase;
+cursor:pointer;backdrop-filter:blur(12px);
+transition:background .2s,transform .1s;white-space:nowrap;position:relative;overflow:hidden;
+}
+button::before{content:’’;position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.25),transparent)}
+button:hover{background:var(–glass2)}
+button:active{transform:scale(.96)}
+.btn-set{background:rgba(200,169,110,.12);border-color:rgba(200,169,110,.3);color:var(–accent)}
+.btn-reset{width:100%;color:rgba(255,255,255,.25);font-size:9px;letter-spacing:.18em}
+
+/* ═══ OVERLAY + SHEET ═══ */
+.overlay{
+position:fixed;inset:0;z-index:60;
+background:rgba(0,0,0,.55);
+backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+display:flex;align-items:flex-end;justify-content:center;
+opacity:0;pointer-events:none;transition:opacity .3s;
+}
+.overlay.open{opacity:1;pointer-events:auto}
+.sheet{
+width:min(480px,100vw);max-height:85vh;
+background:rgba(8,8,18,.93);
+backdrop-filter:blur(40px) saturate(200%);-webkit-backdrop-filter:blur(40px) saturate(200%);
+border:1px solid var(–gb);border-bottom:none;
+border-radius:24px 24px 0 0;
+display:flex;flex-direction:column;
+transform:translateY(100%);
+transition:transform .45s cubic-bezier(.22,1,.36,1);
+position:relative;overflow:hidden;
+}
+.sheet::before{content:’’;position:absolute;top:0;left:10%;right:10%;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.3),transparent)}
+.overlay.open .sheet{transform:translateY(0)}
+.handle{width:36px;height:4px;border-radius:2px;background:rgba(255,255,255,.15);margin:14px auto 0;flex-shrink:0}
+.sh-header{
+display:flex;align-items:center;justify-content:space-between;
+padding:12px 20px 12px;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0;
+}
+.sh-title{font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:var(–muted)}
+.sh-close{
+width:26px;height:26px;border-radius:50%;
+background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);
+display:flex;align-items:center;justify-content:center;
+cursor:pointer;font-size:12px;color:var(–muted);
+transition:background .2s;
+}
+.sh-close:hover{background:rgba(255,255,255,.12)}
+
+/* month filter */
+.month-filter{
+display:flex;gap:7px;padding:11px 16px;
+overflow-x:auto;flex-shrink:0;
+border-bottom:1px solid rgba(255,255,255,.05);
+scrollbar-width:none;
+}
+.month-filter::-webkit-scrollbar{display:none}
+.mf-btn{
+flex-shrink:0;padding:7px 16px;border-radius:99px;
+border:1px solid rgba(255,255,255,.1);
+background:transparent;color:rgba(255,255,255,.42);
+font-family:‘DM Sans’,sans-serif;font-size:13px;font-weight:300;
+letter-spacing:.04em;cursor:pointer;
+transition:background .18s,color .18s,border-color .18s;white-space:nowrap;
+}
+.mf-btn.active{
+background:rgba(255,255,255,.11);border-color:rgba(255,255,255,.28);color:rgba(255,255,255,.9);
+}
+
+.sh-body{overflow-y:auto;padding:10px 13px calc(var(–safe-b)+16px);display:flex;flex-direction:column;gap:8px}
+.sh-body::-webkit-scrollbar{width:3px}
+.sh-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:2px}
+
+/* ═══ ACHIEVEMENT ITEM ═══ */
+.ach{
+display:flex;align-items:center;
+border-radius:16px;overflow:visible;
+border:1px solid rgba(255,255,255,.06);
+background:rgba(255,255,255,.03);
+transition:background .3s,border-color .3s,opacity .3s;
+min-height:80px;
+}
+.ach.unlocked{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.13)}
+.ach.locked{opacity:.3}
+
+.ach-sil-wrap{
+width:56px;
+flex:0 0 56px;
+display:flex;align-items:center;justify-content:center;
+padding:0 0 0 12px;
+overflow:hidden;
+}
+/* SVG built via createElementNS — no innerHTML, no id clash */
+.ach-sil-wrap svg{
+width:40px;height:56px;
+display:block;flex-shrink:0;
+}
+
+.ach-info{
+flex:1;min-width:0;
+padding:14px 8px 14px 12px;
+}
+.ach-day-lbl{
+font-size:12px;letter-spacing:.06em;
+color:rgba(255,255,255,.4);
+text-transform:uppercase;
+margin-bottom:4px;
+}
+.ach-name{
+font-size:17px;font-weight:400;
+color:rgba(255,255,255,.95);
+line-height:1.2;
+}
+.ach-desc{
+font-size:13px;
+color:rgba(255,255,255,.5);
+margin-top:5px;line-height:1.55;
+}
+.ach-check{
+flex:0 0 auto;
+width:24px;height:24px;
+border-radius:50%;
+border:1px solid rgba(255,255,255,.15);
+display:flex;align-items:center;justify-content:center;
+font-size:12px;
+margin-right:14px;
+transition:background .4s,border-color .4s;
+}
+.ach.unlocked .ach-check{
+background:white;border-color:white;color:#000;
+}
+
+/* ═══ TOAST ═══ */
+.toast{
+position:fixed;
+top:calc(20px + var(–safe-t));
+left:50%;
+width:min(340px,90vw);
+margin-left:calc(-1 * min(340px,90vw) / 2);
+z-index:300;
+opacity:0;
+pointer-events:none;
+transform:translateY(-20px) scale(.95);
+transition:opacity .4s cubic-bezier(.22,1,.36,1),transform .45s cubic-bezier(.34,1.56,.64,1);
+}
+.toast.show{opacity:1;transform:translateY(0) scale(1)}
+
+/* toast inner = glass card */
+.toast-inner{
+background:rgba(12,12,22,.88);
+backdrop-filter:blur(32px) saturate(180%);-webkit-backdrop-filter:blur(32px) saturate(180%);
+border:1px solid rgba(255,255,255,.14);
+border-radius:20px;
+overflow:hidden;
+box-shadow:0 8px 40px rgba(0,0,0,.6),0 1px 0 rgba(255,255,255,.15) inset;
+display:flex;align-items:center;gap:0;
+}
+.toast-sil{
+width:60px;flex:0 0 60px;
+display:flex;align-items:center;justify-content:center;
+padding:12px 0 12px 12px;overflow:hidden;
+}
+.toast-sil svg{display:block;width:40px;height:56px;flex-shrink:0}
+.toast-text{padding:14px 16px 14px 10px}
+.toast-title{font-size:13px;font-weight:400;color:white;letter-spacing:.02em}
+.toast-sub{font-size:11px;color:rgba(255,255,255,.48);margin-top:3px;line-height:1.5}
+/* shine */
+.toast-inner::before{content:’’;position:absolute;top:0;left:12%;right:12%;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent)}
+.toast-inner{position:relative}
+
+/* ═══ AI PANEL ═══ */
+.ai-wrap{padding:12px 14px 0;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,.05)}
+.ai-row{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:8px}
+.ai-card{
+background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);
+border-radius:13px;padding:11px 13px;position:relative;overflow:hidden;
+}
+.ai-card::before{content:’’;position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.15),transparent)}
+.ai-cl{font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.28);margin-bottom:3px}
+.ai-cv{font-size:20px;font-family:‘Playfair Display’,serif;color:white}
+.ai-cs{font-size:10px;color:rgba(255,255,255,.32)}
+.ai-bar-row{display:flex;justify-content:space-between;font-size:9px;color:rgba(255,255,255,.28);margin-bottom:5px}
+.ai-track{height:2px;background:rgba(255,255,255,.07);border-radius:99px;overflow:hidden;margin-bottom:10px}
+.ai-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,rgba(200,169,110,.7),rgba(255,255,255,.9));transition:width 1.2s cubic-bezier(.4,0,.2,1)}
+.ai-fc{
+background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);
+border-radius:13px;padding:12px 14px;margin-bottom:10px;
+}
+.ai-fc-lbl{font-size:8px;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.25);margin-bottom:5px}
+.ai-fc-txt{font-size:12px;color:rgba(255,255,255,.5);line-height:1.6}
+.ai-next{
+display:inline-flex;align-items:center;gap:6px;
+margin-top:8px;padding:5px 12px;
+background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+border-radius:99px;font-size:10px;color:rgba(255,255,255,.5);
+}
+
+/* flash */
+.flash{animation:fl .4s ease both}
+@keyframes fl{0%{opacity:.3;transform:scale(.92)}60%{opacity:1;transform:scale(1.05)}100%{opacity:1;transform:scale(1)}}
+
+/* ════════════ SILHOUETTES ════════════
+Energy levels 0-9 mapped to day ranges
+Drawn purely in SVG paths — human silhouette evolving
+══════════════════════════════════════ */
+</style>
+
+</head>
+<body>
+<div class="bg"></div>
+
+<!-- Toast -->
+
+<div class="toast" id="toast">
+  <div class="toast-inner">
+    <div class="toast-sil" id="toastSil"></div>
+    <div class="toast-text">
+      <div class="toast-title" id="toastTitle">—</div>
+      <div class="toast-sub"  id="toastSub">—</div>
+    </div>
+  </div>
+</div>
+
+<!-- Top bar -->
+
+<div class="topbar">
+  <div class="topbtn" onclick="openSheet('ach')">🏆 Достижения</div>
+  <div class="topbtn" onclick="openSheet('ai')">✦ AI анализ</div>
+</div>
+
+<!-- Main screen -->
+
+<div class="screen">
+  <div class="label">flow tracker</div>
+  <div class="days-wrap">
+    <div class="days-n" id="daysN">0</div>
+    <div class="days-unit">дней</div>
+  </div>
+  <div class="stage-pill"><div class="stage-dot"></div><span id="stageN">—</span></div>
+  <div class="arc-wrap">
+    <svg class="arc-svg" viewBox="0 0 64 64">
+      <circle class="arc-bg" cx="32" cy="32" r="30"/>
+      <circle class="arc-fill" id="arcFill" cx="32" cy="32" r="30"/>
+    </svg>
+    <div class="arc-pct" id="arcPct">0%</div>
+  </div>
+  <div class="milestones" id="msList"></div>
+</div>
+
+<!-- Sheet overlay -->
+
+<div class="overlay" id="overlay" onclick="maybeClose(event)">
+  <div class="sheet">
+    <div class="handle"></div>
+    <div class="sh-header">
+      <div class="sh-title" id="shTitle">—</div>
+      <div class="sh-close" onclick="closeSheet()">✕</div>
+    </div>
+    <!-- Month filter (achievements only) -->
+    <div class="month-filter" id="mfWrap"></div>
+    <!-- AI section -->
+    <div id="aiWrap" style="display:none"></div>
+    <!-- List body -->
+    <div class="sh-body" id="shBody"></div>
+  </div>
+</div>
+
+<!-- Controls -->
+
+<div class="controls">
+  <div class="row">
+    <input type="date" id="dateInput">
+    <button class="btn-set" onclick="saveDate()">Установить</button>
+  </div>
+  <button class="btn-reset" onclick="resetToday()">↺ сбросить с сегодня</button>
+</div>
+
+<script>
+/* ══════════════════════════════════════
+   SILHOUETTE SVG GENERATOR
+   Level 0–9 → evolving human posture
+══════════════════════════════════════ */
+function silSVG(level, color='white'){
+  const L = Math.min(9, Math.max(0, level));
+  // Fixed canvas: 40 wide, 56 tall
+  const VW = 40, VH = 56, cx = 20;
+  const op = 0.3 + L * 0.07;
+
+  const headY = 7 - L * 0.2;
+  const headR = 5 + L * 0.1;
+
+  // Spine bottom Y: rises as posture improves
+  const spineBot = 50 - L * 0.5;
+  // Spine path — collapsed→upright
+  let spine;
+  if(L === 0)      spine = `M${cx} ${headY+headR+1} Q${cx-7} ${headY+18} ${cx-5} ${headY+32} Q${cx-3} ${headY+43} ${cx-1} ${spineBot}`;
+  else if(L === 1) spine = `M${cx} ${headY+headR+1} Q${cx-4} ${headY+16} ${cx-3} ${headY+30} L${cx-2} ${headY+44} L${cx} ${spineBot}`;
+  else if(L === 2) spine = `M${cx} ${headY+headR+1} Q${cx-2} ${headY+14} ${cx-1} ${headY+28} L${cx} ${headY+43} L${cx+1} ${spineBot}`;
+  else             spine = `M${cx} ${headY+headR+1} L${cx} ${headY+26} L${cx} ${spineBot}`;
+
+  // Arms: droop at L0, horizontal at L5, rise at L9
+  const armAttachY = headY + headR + 7 + Math.max(0,(4-L)*1.5);
+  const armSpread  = 5 + L * 2.8;    // max ~30 at L9 — stays within VW
+  const armDrop    = 7 - L * 1.4;    // goes negative (arms rise) after L5
+
+  // Legs
+  const legTopY = headY + headR + 28 - L * 0.5;
+  const legBot  = Math.min(VH - 2, headY + headR + 48);
+  const legSpr  = 5 + L * 1.0;
+
+  // Aura rings — small, contained within viewBox
+  let aura = '';
+  if(L >= 5){
+    const aOp = (L-4)*0.09;
+    const bodyCy = headY + headR + 20;
+    const r1 = Math.min(14 + (L-4)*2, 17);
+    const r2 = Math.min(r1 + 5, 21);
+    aura = `<circle cx="${cx}" cy="${bodyCy}" r="${r1}" fill="none" stroke="${color}" stroke-width=".8" opacity="${aOp}"/>
+            <circle cx="${cx}" cy="${bodyCy}" r="${r2}" fill="none" stroke="${color}" stroke-width=".5" opacity="${aOp*.55}"/>`;
+  }
+
+  // Sparks — kept inside VW
+  let sparks = '';
+  if(L >= 7){
+    const cnt = (L-6)*4;
+    const sR  = 16 + (L-7)*3;
+    for(let i=0;i<cnt;i++){
+      const angle = (i/cnt)*Math.PI*2;
+      const px = cx + Math.cos(angle)*sR;
+      const py = (headY+headR+20) + Math.sin(angle)*sR*0.6;
+      if(px>1&&px<VW-1&&py>1&&py<VH-1)
+        sparks += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="1" fill="${color}" opacity="${(0.25+(L-7)*0.1).toFixed(2)}"/>`;
+    }
+  }
+
+  return `<svg viewBox="0 0 ${VW} ${VH}" xmlns="http://www.w3.org/2000/svg" style="display:block;width:38px;height:52px;flex-shrink:0;overflow:hidden">
+    <defs><clipPath id="cb"><rect width="${VW}" height="${VH}"/></clipPath></defs>
+    <g clip-path="url(#cb)">
+      ${aura}${sparks}
+      <circle cx="${cx}" cy="${headY}" r="${headR}" fill="${color}" opacity="${(op+.05).toFixed(2)}"/>
+      <path d="${spine}" stroke="${color}" stroke-width="3" fill="none" stroke-linecap="round" opacity="${op.toFixed(2)}"/>
+      <line x1="${cx}" y1="${armAttachY}" x2="${Math.max(2,cx-armSpread).toFixed(1)}" y2="${(armAttachY+armDrop).toFixed(1)}" stroke="${color}" stroke-width="2.5" stroke-linecap="round" opacity="${op.toFixed(2)}"/>
+      <line x1="${cx}" y1="${armAttachY}" x2="${Math.min(VW-2,cx+armSpread).toFixed(1)}" y2="${(armAttachY+armDrop).toFixed(1)}" stroke="${color}" stroke-width="2.5" stroke-linecap="round" opacity="${op.toFixed(2)}"/>
+      <line x1="${cx}" y1="${legTopY.toFixed(1)}" x2="${Math.max(2,cx-legSpr).toFixed(1)}" y2="${legBot}" stroke="${color}" stroke-width="2.5" stroke-linecap="round" opacity="${op.toFixed(2)}"/>
+      <line x1="${cx}" y1="${legTopY.toFixed(1)}" x2="${Math.min(VW-2,cx+legSpr).toFixed(1)}" y2="${legBot}" stroke="${color}" stroke-width="2.5" stroke-linecap="round" opacity="${op.toFixed(2)}"/>
+    </g>
+  </svg>`;
+}
+
+/* ══════════════════════════════════════
+   DATA
+══════════════════════════════════════ */
+const STAGES=[
+  {max:3,   name:'адаптация',       idx:0},
+  {max:7,   name:'нейро-ломка',     idx:1},
+  {max:21,  name:'стабилизация',    idx:2},
+  {max:60,  name:'устойчивость',    idx:3},
+  {max:90,  name:'баланс',          idx:4},
+  {max:120, name:'мастерство',      idx:5},
+  {max:180, name:'трансформация',   idx:6},
+  {max:270, name:'новая личность',  idx:7},
+  {max:365, name:'год силы',        idx:8},
+  {max:Infinity,name:'легенда',     idx:9},
+];
+
+const MS_IDS=[3,7,14,21,30,60,90,120,180,270,365];
+
+// level = energy silhouette level 0-9, month = 1-12
+const ACHIEVEMENTS=[
+  // MONTH 1 (days 1–30)
+  {day:1,  m:1,  level:0, name:'Первый шаг',            desc:'Мозг начинает снижать сверхстимуляцию дофаминовых рецепторов. Осознание паттерна — первая победа.'},
+  {day:2,  m:1,  level:0, name:'Детокс начался',         desc:'Дофаминовая система входит в режим рекалибровки. Усиленные позывы — нормальная адаптация.'},
+  {day:3,  m:1,  level:0, name:'Нейро-пауза',            desc:'Префронтальная кора начинает восстанавливать контроль над импульсами.'},
+  {day:4,  m:1,  level:1, name:'Сквозь раздражение',     desc:'Эмоциональная нестабильность на пике. Сон начинает нормализоваться.'},
+  {day:5,  m:1,  level:1, name:'Глубокий сон',           desc:'Без ночной гиперстимуляции фаза REM углубляется. Энергия утром выше.'},
+  {day:6,  m:1,  level:1, name:'Острее взгляд',          desc:'Зрительная система меньше реагирует на искусственные триггеры.'},
+  {day:7,  m:1,  level:2, name:'Неделя — рубеж',         desc:'Исследования фиксируют временный подъём тестостерона около 7-го дня.'},
+  {day:10, m:1,  level:2, name:'10 дней силы',            desc:'Более стабильный гормональный фон улучшает физическую выносливость.'},
+  {day:14, m:1,  level:2, name:'Две недели',              desc:'Критическая точка перестройки. Устойчивое улучшение фокуса и настроения.'},
+  {day:21, m:1,  level:3, name:'Новый нейропуть',         desc:'21 день — минимум для формирования новой привычки. Старые цепочки ослабевают.'},
+  {day:30, m:1,  level:3, name:'Месяц — первая перемена', desc:'Дофаминовый цикл существенно перестроен. Концентрация и настроение меняются ощутимо.'},
+  // MONTH 2 (days 31–60)
+  {day:35, m:2,  level:3, name:'Физический подъём',       desc:'Улучшенный гормональный баланс даёт рост выносливости. Спортивные результаты лучше.'},
+  {day:40, m:2,  level:4, name:'Настоящий контакт',        desc:'Навыки реального общения укрепляются. Нет зависимости от суррогатных удовольствий.'},
+  {day:45, m:2,  level:4, name:'Осознанность',             desc:'Способность наблюдать свои мысли без автоматических реакций возрастает.'},
+  {day:50, m:2,  level:4, name:'Полсотни',                 desc:'Половина пути до 90 дней пройдена. Изменения носят устойчивый характер.'},
+  {day:60, m:2,  level:5, name:'Два месяца',               desc:'60 дней достаточно для заметной нейропластичности в системе вознаграждения.'},
+  // MONTH 3 (days 61–90)
+  {day:70, m:3,  level:5, name:'Новая чувствительность',   desc:'Еда, музыка, природа — вновь вызывают яркие ощущения. Дофамин восстановлен.'},
+  {day:75, m:3,  level:5, name:'Стойкость к триггерам',    desc:'Старые триггеры теряют силу. Мозг сформировал альтернативные нейропути.'},
+  {day:80, m:3,  level:5, name:'Гормональный баланс',      desc:'Тестостерон, кортизол и серотонин стабилизируются на оптимальных значениях.'},
+  {day:90, m:3,  level:6, name:'90 дней — легенда',        desc:'Dopamine reward system возвращается к контрольным показателям. 1% людей достигает этого.'},
+  // MONTH 4 (days 91–120)
+  {day:100,m:4,  level:6, name:'Сотня',                    desc:'Редкое достижение. Поведенческое перепрограммирование завершено на глубинном уровне.'},
+  {day:110,m:4,  level:6, name:'Новая реальность',          desc:'Отношения с миром качественно изменились. Реальная близость выходит на первый план.'},
+  {day:120,m:4,  level:6, name:'120 дней — Мастер',         desc:'4 месяца. Изменения в префронтальной коре становятся структурными по данным нейронауки.'},
+  // MONTH 5 (days 121–150) — post-120 новые данные
+  {day:130,m:5,  level:7, name:'Плато преодолено',          desc:'После 120 дней прирост замедляется, но не останавливается. Ты несравним с собой прежним.'},
+  {day:140,m:5,  level:7, name:'Новые амбиции',             desc:'Вещи, которые раньше интересовали, кажутся скучными. Тяга к конкурентным целям растёт.'},
+  {day:150,m:5,  level:7, name:'5 месяцев',                 desc:'Социальные связи с реальными людьми заменяют цифровые суррогаты. Это биологическая потребность.'},
+  // MONTH 6 (days 151–180)
+  {day:160,m:6,  level:7, name:'Создатель',                 desc:'Потребление контента трансформируется в желание создавать. Творческая энергия высвобождается.'},
+  {day:170,m:6,  level:7, name:'Мужская энергия',           desc:'Накопленная витальность трансформируется в реальные достижения. Конкурентность растёт.'},
+  {day:180,m:6,  level:8, name:'Полгода — трансформация',   desc:'6 месяцев абстиненции от ПМО. Исследования фиксируют изменения в структуре белого вещества мозга.'},
+  // MONTH 7 (days 181–210)
+  {day:190,m:7,  level:8, name:'Эмоциональная зрелость',    desc:'Способность к глубокой эмпатии и долгосрочному планированию значительно выросла.'},
+  {day:200,m:7,  level:8, name:'200 дней',                  desc:'Дофаминовые рецепторы полностью адаптированы. Удовольствие от простого стало нормой.'},
+  {day:210,m:7,  level:8, name:'7 месяцев',                 desc:'Стрессоустойчивость на новом уровне. Кортизол в норме — реакция «бей или беги» под контролем.'},
+  // MONTH 8 (days 211–240)
+  {day:220,m:8,  level:8, name:'Лидерский потенциал',       desc:'Уверенность в общении и принятии решений достигает пика. Окружающие замечают перемены.'},
+  {day:230,m:8,  level:8, name:'Глубокие связи',            desc:'Способность к настоящей интимности — эмоциональной и физической — восстановлена полностью.'},
+  {day:240,m:8,  level:8, name:'8 месяцев',                 desc:'Нейропластичность продолжает работу. Новые навыки усваиваются быстрее чем когда-либо.'},
+  // MONTH 9 (days 241–270)
+  {day:250,m:9,  level:9, name:'250 дней',                  desc:'Гормональная система работает в оптимальном режиме. Физическая выносливость на историческом максимуме.'},
+  {day:260,m:9,  level:9, name:'Мастер привычек',           desc:'Самоконтроль в одной сфере распространяется на все аспекты жизни — питание, сон, финансы.'},
+  {day:270,m:9,  level:9, name:'9 месяцев — новая личность', desc:'Через 270 дней ты буквально другой человек — на нейробиологическом и поведенческом уровне.'},
+  // MONTH 10 (days 271–300)
+  {day:280,m:10, level:9, name:'Духовное измерение',        desc:'Многие сообщают о глубоком чувстве смысла и связи с чем-то большим. Это нейрохимия смысла.'},
+  {day:290,m:10, level:9, name:'290 дней',                  desc:'Память, внимание и скорость мышления на пике. Мозг работает в режиме, для которого создан.'},
+  {day:300,m:10, level:9, name:'300 — редчайшее',           desc:'Меньше 0.1% начавших доходят до этой отметки. Ты в элите.'},
+  // MONTH 11 (days 301–330)
+  {day:310,m:11, level:9, name:'Полная интеграция',         desc:'Абстиненция от ПМО больше не требует усилий. Это просто твой образ жизни.'},
+  {day:320,m:11, level:9, name:'10 месяцев+',               desc:'Префронтальная кора функционирует на максимальной мощности. Импульс-контроль абсолютный.'},
+  {day:330,m:11, level:9, name:'11 месяцев',                desc:'Последний месяц перед годовым рубежом. Жизнь изменилась во всех измерениях.'},
+  // MONTH 12 (days 331–365)
+  {day:340,m:12, level:9, name:'Финальный рывок',           desc:'340 дней. Энергия, которую ты раньше тратил — теперь строит твою жизнь.'},
+  {day:355,m:12, level:9, name:'355 дней',                  desc:'Почти год. Ты доказал себе и миру, что полный контроль возможен.'},
+  {day:365,m:12, level:9, name:'365 дней — Год Силы',       desc:'Один год. Структурные изменения в мозге необратимы. Ты создал новую версию себя.'},
+];
+
+const MONTHS=['Все','Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
+
+const FORECASTS=[
+  {from:0,  to:6,   txt:'Самый сложный период. Нейрохимическая буря. Каждый следующий час засчитывается вдвойне. Удержись до конца недели.'},
+  {from:7,  to:20,  txt:'Дофаминовая система начала адаптацию. Пиковые симптомы позади. Фокус и сон выровняются в ближайшие дни.'},
+  {from:21, to:29,  txt:'Новый нейропуть заложен. На 30-й день ожидается заметный скачок ментальной ясности.'},
+  {from:30, to:59,  txt:'Золотая зона. Гормональный баланс стабилизируется. Энергия и уверенность растут нелинейно.'},
+  {from:60, to:89,  txt:'Два месяца — нейропластичность на новом уровне. Осталось 30 дней до легендарного рубежа 90 дней.'},
+  {from:90, to:119, txt:'Классический рубеж пройден. Dopamine reward system восстановлена. Ты в 1% тех, кто дошёл.'},
+  {from:120,to:179, txt:'После 120 дней прирост замедляется — но ты несравним с собой прежним. Тяга к конкурентным целям нарастает.'},
+  {from:180,to:269, txt:'Полгода. Исследования фиксируют изменения в структуре белого вещества мозга. Ты создаёшь новую личность.'},
+  {from:270,to:364, txt:'270 дней — нейробиологически ты другой человек. Финальный рывок к году.'},
+  {from:365,to:9999,txt:'Год силы пройден. Изменения необратимы. Это не просто достижение — это новый ты.'},
+];
+
+/* ══════════ STATE ══════════ */
+let start    = localStorage.getItem('start') || new Date().toISOString();
+let shownAch = JSON.parse(localStorage.getItem('shownAch') || '[]');
+localStorage.setItem('start', start);
+
+let activeSheet = null;
+let activeMon   = 0; // 0=all
+let toastTimer  = null;
+
+/* ══════════ HELPERS ══════════ */
+function daysPassed(){ return Math.floor((new Date()-new Date(start))/86400000); }
+function getStage(d){ return STAGES.find(s=>d<=s.max); }
+function dayLevel(d){
+  // map day to silhouette level 0-9
+  if(d<=2)  return 0;
+  if(d<=6)  return 1;
+  if(d<=13) return 2;
+  if(d<=20) return 3;
+  if(d<=44) return 4;
+  if(d<=89) return 5;
+  if(d<=119)return 6;
+  if(d<=179)return 7;
+  if(d<=269)return 8;
+  return 9;
+}
+
+/* ══════════ BUILD MILESTONES ══════════ */
+(function(){
+  const c=document.getElementById('msList');
+  MS_IDS.forEach(m=>{
+    const d=document.createElement('div');
+    d.className='ms';d.id='ms'+m;
+    d.innerHTML=`<div class="ms-ring"></div><div class="ms-lbl">${m}</div>`;
+    c.appendChild(d);
+  });
+})();
+
+/* ══════════ UPDATE UI ══════════ */
+function updateUI(bump=false){
+  const d   = daysPassed();
+  const inf = getStage(d);
+  const el  = document.getElementById('daysN');
+  el.textContent = d;
+  if(bump){el.classList.remove('flash');void el.offsetWidth;el.classList.add('flash');}
+  document.getElementById('stageN').textContent = inf.name;
+
+  MS_IDS.forEach(m=>{
+    const e=document.getElementById('ms'+m);
+    if(e) e.classList.toggle('done',d>=m);
+  });
+
+  // arc progress to 365
+  const pct = Math.min(d/365,1);
+  const circ = 2*Math.PI*30; // ~188.5
+  document.getElementById('arcFill').style.strokeDashoffset = circ*(1-pct);
+  document.getElementById('arcPct').textContent = Math.round(pct*100)+'%';
+
+  checkAch(d);
+}
+
+/* ══════════ ACHIEVEMENTS ══════════ */
+function checkAch(d){
+  const fresh=ACHIEVEMENTS.filter(a=>a.day<=d && !shownAch.includes(a.day));
+  if(!fresh.length) return;
+  const a=fresh[fresh.length-1];
+  shownAch.push(a.day);
+  localStorage.setItem('shownAch',JSON.stringify(shownAch));
+  showToast(a);
+}
+
+function showToast(a){
+  const sil = document.getElementById('toastSil');
+  sil.innerHTML = '';
+  sil.appendChild(makeSilEl(a.level));
+  document.getElementById('toastTitle').textContent = a.name;
+  document.getElementById('toastSub').textContent   = 'День '+a.day+' — '+a.desc.substring(0,80)+'…';
+  const el=document.getElementById('toast');
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>el.classList.remove('show'),6000);
+}
+
+/* ══════════ SHEET ══════════ */
+function openSheet(type){
+  activeSheet=type;
+  const d=daysPassed();
+  document.getElementById('shTitle').textContent = type==='ach'?'Достижения':'AI аналитика';
+
+  const mfw=document.getElementById('mfWrap');
+  const aiw=document.getElementById('aiWrap');
+  const shb=document.getElementById('shBody');
+
+  if(type==='ach'){
+    mfw.style.display='flex'; aiw.style.display='none'; shb.style.display='flex';
+    buildMF();
+    renderAch(d, activeMon);
+  } else {
+    mfw.style.display='none'; aiw.style.display='block'; shb.style.display='none';
+    renderAI(d);
+  }
+  document.getElementById('overlay').classList.add('open');
+}
+
+function buildMF(){
+  const mfw=document.getElementById('mfWrap');
+  mfw.innerHTML='';
+  MONTHS.forEach((m,i)=>{
+    const b=document.createElement('button');
+    b.className='mf-btn'+(i===activeMon?' active':'');
+    b.textContent=m;
+    b.onclick=()=>{activeMon=i;document.querySelectorAll('.mf-btn').forEach((x,j)=>x.classList.toggle('active',j===i));renderAch(daysPassed(),i);}
+    mfw.appendChild(b);
+  });
+}
+
+function makeSilEl(level){
+  // Create a real DOM SVG element — not innerHTML string
+  // This avoids clipPath id collision and Safari inline-SVG sizing bugs
+  const NS = 'http://www.w3.org/2000/svg';
+  const L  = Math.min(9, Math.max(0, level));
+  const VW = 40, VH = 56, cx = 20;
+  const op = (0.3 + L * 0.07).toFixed(2);
+
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${VW} ${VH}`);
+  svg.setAttribute('width',  '40');
+  svg.setAttribute('height', '56');
+  svg.style.cssText = 'display:block;width:40px;height:56px;flex-shrink:0';
+
+  const mk = (tag, attrs) => {
+    const el = document.createElementNS(NS, tag);
+    for(const [k,v] of Object.entries(attrs)) el.setAttribute(k,v);
+    return el;
+  };
+
+  const headY = 7 - L * 0.2;
+  const headR = 5 + L * 0.1;
+
+  // Aura rings
+  if(L >= 5){
+    const aOp  = ((L-4)*0.09).toFixed(2);
+    const bcy  = headY + headR + 20;
+    const r1   = Math.min(14+(L-4)*2, 17);
+    const r2   = Math.min(r1+5, 21);
+    svg.appendChild(mk('circle',{cx,cy:bcy,r:r1,fill:'none',stroke:'white','stroke-width':'.8',opacity:aOp}));
+    svg.appendChild(mk('circle',{cx,cy:bcy,r:r2,fill:'none',stroke:'white','stroke-width':'.5',opacity:((L-4)*0.05).toFixed(2)}));
+  }
+
+  // Sparks
+  if(L >= 7){
+    const cnt = (L-6)*4, sR = 16+(L-7)*3;
+    for(let i=0;i<cnt;i++){
+      const a  = (i/cnt)*Math.PI*2;
+      const px = cx+Math.cos(a)*sR, py = (headY+headR+20)+Math.sin(a)*sR*0.6;
+      if(px>1&&px<VW-1&&py>1&&py<VH-1)
+        svg.appendChild(mk('circle',{cx:px.toFixed(1),cy:py.toFixed(1),r:'1',fill:'white',opacity:(0.25+(L-7)*0.1).toFixed(2)}));
+    }
+  }
+
+  // Head
+  svg.appendChild(mk('circle',{cx,cy:headY,r:headR,fill:'white',opacity:op}));
+
+  // Spine
+  const spineBot = 50 - L*0.5;
+  let d;
+  if(L===0) d=`M${cx} ${headY+headR+1} Q${cx-7} ${headY+18} ${cx-5} ${headY+32} Q${cx-3} ${headY+43} ${cx-1} ${spineBot}`;
+  else if(L===1) d=`M${cx} ${headY+headR+1} Q${cx-4} ${headY+16} ${cx-3} ${headY+30} L${cx-2} ${headY+44} L${cx} ${spineBot}`;
+  else if(L===2) d=`M${cx} ${headY+headR+1} Q${cx-2} ${headY+14} ${cx-1} ${headY+28} L${cx} ${headY+43} L${cx+1} ${spineBot}`;
+  else           d=`M${cx} ${headY+headR+1} L${cx} ${headY+26} L${cx} ${spineBot}`;
+  svg.appendChild(mk('path',{d,stroke:'white','stroke-width':'3',fill:'none','stroke-linecap':'round',opacity:op}));
+
+  // Arms
+  const ay  = headY+headR+7+Math.max(0,(4-L)*1.5);
+  const asx = 5+L*2.8, ady = 7-L*1.4;
+  svg.appendChild(mk('line',{x1:cx,y1:ay,x2:Math.max(2,cx-asx).toFixed(1),y2:(ay+ady).toFixed(1),stroke:'white','stroke-width':'2.5','stroke-linecap':'round',opacity:op}));
+  svg.appendChild(mk('line',{x1:cx,y1:ay,x2:Math.min(VW-2,cx+asx).toFixed(1),y2:(ay+ady).toFixed(1),stroke:'white','stroke-width':'2.5','stroke-linecap':'round',opacity:op}));
+
+  // Legs
+  const ly  = headY+headR+28-L*0.5;
+  const lb  = Math.min(VH-2, headY+headR+48);
+  const lsx = 5+L*1.0;
+  svg.appendChild(mk('line',{x1:cx,y1:ly.toFixed(1),x2:Math.max(2,cx-lsx).toFixed(1),y2:lb,stroke:'white','stroke-width':'2.5','stroke-linecap':'round',opacity:op}));
+  svg.appendChild(mk('line',{x1:cx,y1:ly.toFixed(1),x2:Math.min(VW-2,cx+lsx).toFixed(1),y2:lb,stroke:'white','stroke-width':'2.5','stroke-linecap':'round',opacity:op}));
+
+  return svg;
+}
+
+function renderAch(d, mon){
+  const shb=document.getElementById('shBody');
+  shb.innerHTML='';
+  const list = mon===0 ? ACHIEVEMENTS : ACHIEVEMENTS.filter(a=>a.m===mon);
+  list.forEach(a=>{
+    const ok=d>=a.day;
+
+    // Outer card
+    const card = document.createElement('div');
+    card.className='ach '+(ok?'unlocked':'locked');
+
+    // Silhouette column
+    const silWrap = document.createElement('div');
+    silWrap.className='ach-sil-wrap';
+    silWrap.appendChild(makeSilEl(a.level));
+
+    // Text info
+    const info = document.createElement('div');
+    info.className='ach-info';
+    info.innerHTML=`<div class="ach-day-lbl">День ${a.day}</div>
+                    <div class="ach-name">${a.name}</div>
+                    <div class="ach-desc">${a.desc}</div>`;
+
+    // Check badge
+    const chk = document.createElement('div');
+    chk.className='ach-check';
+    chk.textContent = ok?'✓':'';
+
+    card.appendChild(silWrap);
+    card.appendChild(info);
+    card.appendChild(chk);
+    shb.appendChild(card);
+  });
+}
+
+function renderAI(d){
+  const unlocked=ACHIEVEMENTS.filter(a=>a.day<=d).length;
+  const pct=Math.round(Math.min(d/365,1)*100);
+  const fc=FORECASTS.find(f=>d>=f.from&&d<=f.to)||FORECASTS[FORECASTS.length-1];
+  const nextA=ACHIEVEMENTS.find(a=>a.day>d);
+
+  document.getElementById('aiWrap').innerHTML=`
+    <div class="ai-wrap">
+      <div class="ai-row">
+        <div class="ai-card"><div class="ai-cl">Streak</div><div class="ai-cv">${d}</div><div class="ai-cs">дней подряд</div></div>
+        <div class="ai-card"><div class="ai-cl">Достижений</div><div class="ai-cv">${unlocked}/${ACHIEVEMENTS.length}</div><div class="ai-cs">разблокировано</div></div>
+      </div>
+      <div class="ai-bar-row"><span>До 365 дней</span><span>${pct}%</span></div>
+      <div class="ai-track"><div class="ai-fill" style="width:${pct}%"></div></div>
+      <div class="ai-fc">
+        <div class="ai-fc-lbl">Прогноз</div>
+        <div class="ai-fc-txt">${fc.txt}</div>
+        <div class="ai-next">${nextA?'Следующее: «'+nextA.name+'» — день '+nextA.day+' (через '+(nextA.day-d)+' дн.)':'👑 Все достижения разблокированы'}</div>
+      </div>
+    </div>`;
+}
+
+function closeSheet(){ document.getElementById('overlay').classList.remove('open'); activeSheet=null; }
+function maybeClose(e){ if(e.target===document.getElementById('overlay')) closeSheet(); }
+
+/* ══════════ CONTROLS ══════════ */
+function saveDate(){
+  const v=document.getElementById('dateInput').value;
+  if(!v) return;
+  start=new Date(v).toISOString();
+  localStorage.setItem('start',start);
+  shownAch=[];localStorage.setItem('shownAch','[]');
+  haptic();updateUI(true);
+}
+function resetToday(){
+  start=new Date().toISOString();
+  localStorage.setItem('start',start);
+  shownAch=[];localStorage.setItem('shownAch','[]');
+  haptic();updateUI(true);
+}
+function haptic(){ if(navigator.vibrate) navigator.vibrate(20); }
+
+/* ══════════ NO SWIPE RESET ══════════ */
+// swipe disabled — too risky. Reset only via button.
+
+updateUI();
+</script>
+
+</body>
+</html>
